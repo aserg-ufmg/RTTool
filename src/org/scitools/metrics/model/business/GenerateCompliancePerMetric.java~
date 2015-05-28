@@ -1,0 +1,321 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package org.scitools.metrics.model.bisness;
+
+import java.text.DecimalFormat;
+import java.util.ArrayList;
+import org.apache.commons.math3.stat.descriptive.DescriptiveStatistics;
+import org.apache.commons.math3.stat.descriptive.rank.Median;
+import org.scitools.metrics.model.beans.Compliance;
+import org.scitools.metrics.model.util.QuicSortString;
+
+/**
+ *
+ * @author fernando
+ */
+public class GenerateCompliancePerMetric {
+
+    public double[] getMedianasDoArquivoPercentis(String nomeArquivo) {
+        ReadCSV rcsv = new ReadCSV();
+        rcsv.setUrlArquivo(nomeArquivo);
+        double[] medianasPercentil = new double[20];
+        int qtdColunas = rcsv.getQtdColunas(ReadCSV.SEPARADOR_VIGULA), contMedianas = 0;
+        for (int i = 1; i < qtdColunas; i++) {
+            //pega coluna percentil por coluna percentil para gerar sua mediana
+            ArrayList<String> colunaPercentil = rcsv.getColuna(i, ReadCSV.SEPARADOR_VIGULA);
+            //gera a mediana da coluna percentil, gravando no vetor de medianas 
+            DescriptiveStatistics ds = new DescriptiveStatistics();
+            boolean flagAux = false;// variável flag responsável responsável por saltar a primeira linha da coluna(porcentagem percentil)
+            for (String linhaValor : colunaPercentil) {
+                if (flagAux) {
+                    ds.addValue(Double.parseDouble(linhaValor));
+                } else {
+                    flagAux = true;
+                }
+            }
+            Median mediana = new Median();
+            medianasPercentil[contMedianas] = (double) mediana.evaluate(ds.getValues());
+            contMedianas++;
+        }
+        return medianasPercentil;
+    }
+
+    public float getMedianaDoArquivoPercentis(int tail_mediana, String nomeArquivo) {
+        ReadCSV rcsv = new ReadCSV();
+        rcsv.setUrlArquivo(nomeArquivo);
+        float medianasPercentil;
+
+        //pega coluna percentil por coluna percentil para gerar sua mediana
+        ArrayList<String> colunaPercentil = rcsv.getColuna(tail_mediana / 5, ReadCSV.SEPARADOR_VIGULA);
+
+        //gera a mediana da coluna percentil, gravando no vetor de medianas 
+        DescriptiveStatistics ds = new DescriptiveStatistics();// Classe Commons
+        boolean flagAux = false;// variável flag responsável responsável por saltar a primeira linha da coluna(porcentagem percentil)
+        for (String linhaValor : colunaPercentil) {
+            if (flagAux) {
+                ds.addValue(Double.parseDouble(linhaValor));
+            } else {
+                flagAux = true;
+            }
+        }
+        Median mediana = new Median();                          // Classe Commons
+        medianasPercentil = (float) mediana.evaluate(ds.getValues());
+
+        return medianasPercentil;
+    }
+
+    protected double[] getCompilanceRate(int n2xMediana, double[] contagemCompliance, ArrayList<String> colunaPercentil) {
+        double[] compliance = new double[n2xMediana];
+        for (int i = 0; i < contagemCompliance.length; i++) {
+            compliance[i] = (double) contagemCompliance[i] / (colunaPercentil.size() - 1) * 100;
+        }
+        return compliance;
+    }
+
+    protected double[] getPenality1(int n2xMediana, double[] compliance, int min) {
+        double[] p1 = new double[n2xMediana];
+        DecimalFormat df = new DecimalFormat("##.##");
+        for (int i = 0; i < compliance.length; i++) {
+            if (compliance[i] < min) {
+                Double.parseDouble(df.format(p1[i] = (double) (Math.abs(min - compliance[i])) / min).replace(",", "."));
+            }
+        }
+        return p1;
+    }
+
+    protected double[] getPenality2(int n2xMediana, double[] contagemCompliance, double mediana) {
+        double[] p2 = new double[n2xMediana];
+        DecimalFormat df = new DecimalFormat("##.##");
+        //df.format(1234.36);
+        if (mediana >= 1) {// se mediana for menor que 1, a escala é de 0.1
+            for (int i = 0; i < contagemCompliance.length; i++) {
+                if (i > mediana) {
+                    p2[i] = Double.parseDouble(df.format((double) (i - mediana) / mediana).replace(",", "."));
+                } else {
+                    p2[i] = 0;
+                }
+            }
+        } else {// se não, se a mediana for maior que 1 a escala é inteira
+            for (int i = 0; i < contagemCompliance.length; i++) {
+                if (Float.parseFloat("0." + i) > mediana) {
+                    p2[i] = Double.parseDouble(df.format((double) (Float.parseFloat("0." + i) - mediana) / mediana).replace(",", "."));
+                } else {
+                    p2[i] = 0;
+                }
+            }
+        }
+        return p2;
+    }
+
+    protected double[] getCompilanceRatePenality(int n2xMediana, double[] p1, double[] p2, int wReal, int wIdeal) {
+        double[] weigth = new double[n2xMediana];
+        DecimalFormat df = new DecimalFormat("##.##");
+        //df.format(1234.36);
+        for (int i = 0; i < weigth.length; i++) {
+            //weigth[i] = (double) (Double.parseDouble(df.format((double)wReal * p1[i]).replace(",", ".")) + Double.parseDouble(df.format((double)wIdeal * p2[i]).replace(",", "."))) / (wReal + wIdeal);
+            weigth[i] = Double.parseDouble(df.format((double) ((double) wReal * Double.parseDouble(df.format(p1[i]).replace(",", ".")) + (double) wIdeal * Double.parseDouble(df.format(p2[i]).replace(",", "."))) / (wReal + wIdeal)).replace(",", "."));
+        }
+        return weigth;
+    }
+
+    public StringBuffer getTabelaComplianceUnique(String path, String nomeArquivo, int min, int tail_mediana, int wIdeal, int wReal) {
+
+        float mediana = getMedianaDoArquivoPercentis(tail_mediana, path + "//" + nomeArquivo);
+        int n2xMediana = 1 + 2 * Math.round(mediana);
+        if (n2xMediana <= 1) {// caso a mediana dê menor que 1
+            n2xMediana = 2;
+        }
+        double[] contagemCompliance = new double[n2xMediana];
+        //começa compilance
+        ReadCSV rcsv = new ReadCSV();
+        rcsv.setUrlArquivo(path + "//" + nomeArquivo);
+
+        //pega coluna percentil de acordo com tail mediana escolhida pelo usuário
+        ArrayList<String> colunaPercentil = rcsv.getColuna(tail_mediana / 5, ReadCSV.SEPARADOR_VIGULA);
+        //Ordena para pegar compliane
+        QuicSortString.quick_sort(colunaPercentil, 1, colunaPercentil.size() - 1, QuicSortString.TYPE_FLOAT);
+
+        //pega contagem para complilance <=i
+        for (int i = 0; i < n2xMediana; i++) {
+            boolean flagAux = false;
+            for (String valorPercentil : colunaPercentil) {
+                if (flagAux) {
+                    double aux = Float.parseFloat(valorPercentil);
+                    if (aux <= i) {
+                        //contagemCompliance[i] += aux;
+                        contagemCompliance[i]++;
+                    }
+                } else {
+                    flagAux = true;
+                    if (i == 0) {
+                        i++;//faz a primeira linha da contagem ser 0
+                    }
+                }
+            }
+        }
+
+        //achando a porcentagem, compliance hate(o contagem compliance significa o k)
+        double[] compliance = getCompilanceRate(n2xMediana, contagemCompliance, colunaPercentil);
+
+        //achando a penality 1
+        double[] p1 = getPenality1(n2xMediana, compliance, min);
+
+        //achando a penality 2
+        double[] p2 = getPenality2(n2xMediana, contagemCompliance, mediana);
+
+        //achando a Compliance Rate Penality
+        double[] weigth = getCompilanceRatePenality(n2xMediana, p1, p2, wReal, wIdeal);
+
+        //gerando buffer único de saida
+        StringBuffer saida = new StringBuffer();
+        saida.append("i,k,CR,P1,P2,CRP\n");
+        for (int i = 0; i < compliance.length; i++) {
+            saida.append(i + "," + contagemCompliance[i] + "," + compliance[i] + "," + p1[i] + "," + p2[i] + "," + weigth[i] + "\n");
+        }
+
+        return saida;
+    }
+
+    public Compliance getTabelaComplianceAll(String path, String nomeArquivo, int min, int tail_mediana, int wIdeal, int wReal) {
+        double fimCasoMedianaMenorQueUm;
+        float mediana = getMedianaDoArquivoPercentis(tail_mediana, path + "//" + nomeArquivo);
+        int n2xMediana = 1 + 2 * Math.round(mediana);
+        if (mediana < 1) {// caso a mediana dê menor que 1
+            n2xMediana = 1 + 2 * Integer.parseInt((mediana + "").charAt(2) + "");
+            fimCasoMedianaMenorQueUm = (double) 2 * mediana;
+            //n2xMediana = 2;
+        }
+        if ((mediana - (int) mediana) > 0 && mediana > 1) {// caso a mediana dê menor que 1
+            n2xMediana = Math.round((float) 2 * mediana);
+        }
+        ArrayList<double[]> listWs = new ArrayList();
+        ArrayList<double[]> listP1s = new ArrayList();
+        ArrayList<double[]> listP2s = new ArrayList();
+        ArrayList<double[]> listKs = new ArrayList();
+        ArrayList<double[]> listCPercents = new ArrayList();
+
+        //começa compilance
+        ReadCSV rcsv = new ReadCSV();
+        rcsv.setUrlArquivo(path + "//" + nomeArquivo);
+        for (int c = 5; c <= 100; c += 5) {
+            double[] contagemCompliance = new double[n2xMediana];
+            //pega coluna percentil de acordo com tail mediana escolhida pelo usuário
+            ArrayList<String> colunaPercentil = rcsv.getColuna(c / 5, ReadCSV.SEPARADOR_VIGULA);
+
+            //Ordena para pegar compliane, começa do um pois existe o cameçalho da coluna
+            QuicSortString.quick_sort(colunaPercentil, 1, colunaPercentil.size() - 1, QuicSortString.TYPE_FLOAT);
+
+            //pega contagem para complilance <=i
+            for (int i = 0; i < n2xMediana; i++) {
+                boolean flagAux = false;
+                for (String valorPercentil : colunaPercentil) {
+                    if (flagAux) {
+                        double aux = Float.parseFloat(valorPercentil);
+                        if (mediana < 1) {
+                            if (aux <= Float.parseFloat("0." + i)) {
+                                //contagemCompliance[i] += aux;
+                                contagemCompliance[i]++;
+                            }
+                        } else {
+                            if (aux <= i) {
+                                //contagemCompliance[i] += aux;
+                                contagemCompliance[i]++;
+                            }
+                        }
+                    } else {
+                        flagAux = true;
+                        if (i == 0) {
+                            i++;//faz a primeira linha da contagem ser 0
+                        }
+                    }
+                }
+            }
+
+            //achando a porcentagem, compliance hate
+            double[] compliance = getCompilanceRate(n2xMediana, contagemCompliance, colunaPercentil);
+
+            //achando a penality 1
+            double[] p1 = getPenality1(n2xMediana, compliance, min);
+
+            //achando a penality 2
+            double[] p2 = getPenality2(n2xMediana, contagemCompliance, mediana);
+
+            //achando a weigth
+            double[] weigth = getCompilanceRatePenality(n2xMediana, p1, p2, wReal, wIdeal);
+
+            listCPercents.add(compliance);
+            listKs.add(contagemCompliance);
+            listWs.add(weigth);
+            listP1s.add(p1);
+            listP2s.add(p2);
+        }
+
+        //criando buffers de saida
+        StringBuffer ws = new StringBuffer();
+        StringBuffer p1s = new StringBuffer();
+        StringBuffer p2s = new StringBuffer();
+        StringBuffer ks = new StringBuffer();
+        StringBuffer cs = new StringBuffer();
+
+//        //gerando tabelas nos buffers de saida
+//        ws.append(getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listWs));
+//        p1s.append(getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listP1s));
+//        p2s.append(getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listP2s));
+//        ks.append(getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listKs));
+//        cs.append(getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listCPercents));
+
+        //gerando tabelas nos buffers de saida
+        ws = (getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listWs));
+        p1s = (getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listP1s));
+        p2s = (getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listP2s));
+        ks = (getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listKs));
+        cs = (getStringBuffer(tail_mediana, path, nomeArquivo, n2xMediana, listCPercents));
+
+
+        //setando saida
+        Compliance saida = new Compliance();
+        saida.setiPerPercentiles_weigth(ws);
+        saida.setiPerPercentiles_k(ks);
+        saida.setiPerPercentiles_p1(p1s);
+        saida.setiPerPercentiles_p2(p2s);
+        saida.setiPerPercentiles_c(cs);
+
+        return saida;
+    }
+
+    private StringBuffer getStringBuffer(int tail_mediana, String path, String nomeArquivo, int n2xMediana, ArrayList<double[]> listElementos) {
+        StringBuffer saida = new StringBuffer();
+        double[] medianas = getMedianasDoArquivoPercentis(path + "//" + nomeArquivo);
+        saida.append("Medians:");
+        for (int i = 0; i < medianas.length; i++) {
+            if (i == (tail_mediana / 5) - 1) { // se foi a mediana escolhida no tail, marca com parenteses 
+                saida.append(",(" + (double) medianas[i] + ")");
+            } else {
+                saida.append("," + (double) medianas[i]);
+            }
+        }
+        saida.append("\n");
+        saida.append("k,5%,10%,15%,20%,25%,30%,35%,40%,45%,50%,55%,60%,65%,70%,75%,80%,85%,90%,95%,100%\n");
+        double seMedianaMenorQueUM = 0;
+        for (int l = 0; l < n2xMediana; l++) {
+            if (!(medianas[(tail_mediana / 5) - 1] < 1)) {
+                saida.append(l + "");
+            } else {
+
+                saida.append((seMedianaMenorQueUM + ""));
+
+                seMedianaMenorQueUM += (double) 0.1;
+                DecimalFormat df1 = new DecimalFormat("##.##");
+                seMedianaMenorQueUM = Float.parseFloat(df1.format(seMedianaMenorQueUM).replace(",", ".").replace(";", ""));
+            }
+
+            for (int c = 0; c < listElementos.size(); c++) {
+                saida.append("," + listElementos.get(c)[l]);
+            }
+            saida.append("\n");
+        }
+        return saida;
+    }
+}
